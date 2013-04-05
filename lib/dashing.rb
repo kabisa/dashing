@@ -5,6 +5,7 @@ require 'rufus/scheduler'
 require 'coffee-script'
 require 'sass'
 require 'json'
+require 'job'
 
 SCHEDULER = Rufus::Scheduler.start_new
 
@@ -22,6 +23,12 @@ set :public_folder, File.join(settings.root, 'public')
 set :views, File.join(settings.root, 'dashboards')
 set :default_dashboard, nil
 set :auth_token, nil
+
+def load_config(path)
+  return {} unless File.exist? path
+  JSON.parse(IO.read(path), symbolize_names: true)
+end
+set :config, load_config(File.join(settings.root, 'config', 'config.json'))
 
 helpers Sinatra::ContentFor
 helpers do
@@ -52,6 +59,8 @@ get '/:dashboard' do
   protected!
   if File.exist? File.join(settings.views, "#{params[:dashboard]}.erb")
     erb params[:dashboard].to_sym
+  elsif dashboard = load_dynamic_dashboard(params[:dashboard])
+    erb :dynamic, locals: { dashboard: dashboard }
   else
     halt 404
   end
@@ -88,6 +97,10 @@ def production?
   ENV['RACK_ENV'] == 'production'
 end
 
+def load_dynamic_dashboard(name)
+  settings.config.fetch(:dashboards, {})[name.to_sym]
+end
+
 def send_event(id, body)
   body[:id] = id
   body[:updatedAt] ||= Time.now.to_i
@@ -118,3 +131,5 @@ Dir[File.join(settings.root, 'lib', '**', '*.rb')].each {|file| require file }
 job_path = ENV["JOB_PATH"] || 'jobs'
 files = Dir[File.join(settings.root, job_path, '/*.rb')]
 files.each { |job| require(job) }
+
+Dashing.load_dynamic_jobs settings.config[:jobs]
