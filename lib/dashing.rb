@@ -121,7 +121,7 @@ end
 
 def first_dashboard
   files = Dir[File.join(settings.views, '*.erb')].collect { |f| f.match(/(\w*).erb/)[1] }
-  files -= ['layout']
+  files -= ['layout', 'dynamic']
   files.first
 end
 
