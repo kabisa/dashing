@@ -5,6 +5,7 @@ require 'rufus/scheduler'
 require 'coffee-script'
 require 'sass'
 require 'json'
+require 'job'
 
 SCHEDULER = Rufus::Scheduler.start_new
 
@@ -22,6 +23,12 @@ set :public_folder, File.join(settings.root, 'public')
 set :views, File.join(settings.root, 'dashboards')
 set :default_dashboard, nil
 set :auth_token, nil
+
+def load_config(path)
+  return {} unless File.exist? path
+  JSON.parse(IO.read(path), symbolize_names: true)
+end
+set :config, load_config(File.join(settings.root, 'config', 'config.json'))
 
 helpers Sinatra::ContentFor
 helpers do
@@ -42,20 +49,25 @@ end
 
 get '/' do
   begin
-  redirect "/" + (settings.default_dashboard || first_dashboard).to_s
-  rescue NoMethodError => e
+    redirect "/" + (settings.default_dashboard || first_dashboard).to_s
+  rescue NoMethodError
     raise Exception.new("There are no dashboards in your dashboard directory.")
   end
 end
 
 get '/:dashboard' do
   protected!
+
   tilt_html_engines.each do |suffix, _|
     file = File.join(settings.views, "#{params[:dashboard]}.#{suffix}")
     return render(suffix.to_sym, params[:dashboard].to_sym) if File.exist? file
   end
 
-  halt 404
+  if dashboard = load_dynamic_dashboard(params[:dashboard])
+    erb :dynamic, locals: { dashboard: dashboard }
+  else
+    halt 404
+  end
 end
 
 get '/views/:widget?.html' do
@@ -91,6 +103,10 @@ def production?
   ENV['RACK_ENV'] == 'production'
 end
 
+def load_dynamic_dashboard(name)
+  settings.config.fetch(:dashboards, {})[name.to_sym]
+end
+
 def send_event(id, body)
   body[:id] = id
   body[:updatedAt] ||= Time.now.to_i
@@ -104,14 +120,14 @@ def format_event(body)
 end
 
 def latest_events
-  settings.history.inject("") do |str, (id, body)|
+  settings.history.inject("") do |str, (_, body)|
     str << body
   end
 end
 
 def first_dashboard
   files = Dir[File.join(settings.views, '*')].collect { |f| File.basename(f, '.*') }
-  files -= ['layout']
+  files -= ['layout', 'dynamic']
   files.first
 end
 
@@ -128,3 +144,5 @@ Dir[File.join(settings.root, 'lib', '**', '*.rb')].each {|file| require file }
 job_path = ENV["JOB_PATH"] || 'jobs'
 files = Dir[File.join(settings.root, job_path, '/*.rb')]
 files.each { |job| require(job) }
+
+Dashing.load_dynamic_jobs settings.config[:jobs]
