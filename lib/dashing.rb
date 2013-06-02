@@ -24,11 +24,23 @@ set :views, File.join(settings.root, 'dashboards')
 set :default_dashboard, nil
 set :auth_token, nil
 
+
+def convert_hash_keys(value)
+  case value
+  when Array
+    value.map { |v| convert_hash_keys(v) }
+  when Hash
+    Hash[value.map { |k, v| [k.to_sym, convert_hash_keys(v)] }]
+  else
+    value
+  end
+end
+
 def load_config(path)
   return {} unless File.exist? path
-  JSON.parse(IO.read(path), symbolize_names: true)
+  convert_hash_keys(Psych.load_file(path))
 end
-set :config, load_config(File.join(settings.root, 'config', 'config.json'))
+set :config, load_config(File.join(settings.root, 'config', 'config.yml'))
 
 helpers Sinatra::ContentFor
 helpers do
